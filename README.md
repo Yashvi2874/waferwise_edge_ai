@@ -124,6 +124,6 @@ The model is designed for deployment on NXP i.MX RT series:
 - [IEEE DataPort Wafer Surface](https://ieee-dataport.org/documents/wafer-surface-defect) - 500 annotated images
 - [MixedWM38 Wafer Map](https://github.com/Junliangwangdhu/WaferMap) - 38k wafer maps
 
-## License
+## Author
 
-MIT License
+Yashasvi Gupta - +91 9316411714
