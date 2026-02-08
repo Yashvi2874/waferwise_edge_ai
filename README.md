@@ -1,6 +1,6 @@
-# Edge-AI Semiconductor Defect Classification
+# WaferWise : Smarter inspection. Faster yields.
 
-Explainable edge-AI system for real-time wafer defect detection using lightweight CNN optimized for NXP i.MX RT series deployment.
+## Edge-AI Semiconductor Defect Classification: Explainable edge-AI system for real-time wafer defect detection using lightweight CNN optimized for NXP i.MX RT series deployment.
 
 ## Overview
 
