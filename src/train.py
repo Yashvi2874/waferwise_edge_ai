@@ -1,10 +1,6 @@
-"""
-Training script for wafer defect classification model
-"""
 import os
 import json
 import argparse
-from datetime import datetime
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -13,137 +9,84 @@ from tqdm import tqdm
 
 from models.mobilenet_classifier import create_model
 from data.dataset import create_dataloaders
-from utils.metrics import calculate_metrics, plot_training_history
+from utils.metrics import plot_training_history
 
 
-def train_epoch(model, dataloader, criterion, optimizer, device):
-    """Train for one epoch"""
+def train_epoch(model, loader, criterion, optimizer, device):
     model.train()
-    running_loss = 0.0
-    correct = 0
-    total = 0
+    loss_sum, correct, total = 0, 0, 0
     
-    pbar = tqdm(dataloader, desc='Training')
-    for images, labels in pbar:
-        images, labels = images.to(device), labels.to(device)
+    pbar = tqdm(loader, desc='Training')
+    for imgs, labels in pbar:
+        imgs, labels = imgs.to(device), labels.to(device)
         
-        # Forward pass
         optimizer.zero_grad()
-        outputs = model(images)
+        outputs = model(imgs)
         loss = criterion(outputs, labels)
-        
-        # Backward pass
         loss.backward()
         optimizer.step()
         
-        # Statistics
-        running_loss += loss.item() * images.size(0)
-        _, predicted = outputs.max(1)
+        loss_sum += loss.item() * imgs.size(0)
+        _, preds = outputs.max(1)
         total += labels.size(0)
-        correct += predicted.eq(labels).sum().item()
+        correct += preds.eq(labels).sum().item()
         
-        # Update progress bar
         pbar.set_postfix({
             'loss': f'{loss.item():.4f}',
             'acc': f'{100.*correct/total:.2f}%'
         })
     
-    epoch_loss = running_loss / total
-    epoch_acc = 100. * correct / total
-    
-    return epoch_loss, epoch_acc
+    return loss_sum / total, 100. * correct / total
 
 
-def validate(model, dataloader, criterion, device):
-    """Validate model"""
+def validate(model, loader, criterion, device):
     model.eval()
-    running_loss = 0.0
-    correct = 0
-    total = 0
+    loss_sum, correct, total = 0, 0, 0
     
     with torch.no_grad():
-        for images, labels in tqdm(dataloader, desc='Validation'):
-            images, labels = images.to(device), labels.to(device)
-            
-            outputs = model(images)
+        for imgs, labels in tqdm(loader, desc='Validation'):
+            imgs, labels = imgs.to(device), labels.to(device)
+            outputs = model(imgs)
             loss = criterion(outputs, labels)
             
-            running_loss += loss.item() * images.size(0)
-            _, predicted = outputs.max(1)
+            loss_sum += loss.item() * imgs.size(0)
+            _, preds = outputs.max(1)
             total += labels.size(0)
-            correct += predicted.eq(labels).sum().item()
+            correct += preds.eq(labels).sum().item()
     
-    epoch_loss = running_loss / total
-    epoch_acc = 100. * correct / total
-    
-    return epoch_loss, epoch_acc
+    return loss_sum / total, 100. * correct / total
 
 
 def train_model(args):
-    """Main training function"""
-    # Set device
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
     print(f"Using device: {device}")
     
-    # Create dataloaders
     print("Loading datasets...")
-    train_loader, val_loader, test_loader = create_dataloaders(
+    train_loader, val_loader, _ = create_dataloaders(
         args.data_dir,
         batch_size=args.batch_size,
         num_workers=args.num_workers,
         img_size=args.img_size
     )
     
-    # Create model
     print("Creating model...")
-    model = create_model(
-        num_classes=args.num_classes,
-        pretrained=args.pretrained,
-        device=device
-    )
+    model = create_model(num_classes=args.num_classes, device=device)
     
-    # Loss and optimizer
     criterion = nn.CrossEntropyLoss()
-    optimizer = optim.Adam(
-        model.parameters(),
-        lr=args.lr,
-        weight_decay=args.weight_decay
-    )
-    scheduler = ReduceLROnPlateau(
-        optimizer,
-        mode='max',
-        factor=0.5,
-        patience=5,
-        verbose=True
-    )
+    optimizer = optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+    scheduler = ReduceLROnPlateau(optimizer, mode='max', factor=0.5, patience=5, verbose=True)
     
-    # Training history
-    history = {
-        'train_loss': [],
-        'train_acc': [],
-        'val_loss': [],
-        'val_acc': []
-    }
+    history = {'train_loss': [], 'train_acc': [], 'val_loss': [], 'val_acc': []}
+    best_acc = 0.0
+    patience = 0
     
-    best_val_acc = 0.0
-    patience_counter = 0
-    
-    # Training loop
     print(f"\nStarting training for {args.epochs} epochs...")
     for epoch in range(args.epochs):
         print(f"\nEpoch {epoch+1}/{args.epochs}")
         
-        # Train
-        train_loss, train_acc = train_epoch(
-            model, train_loader, criterion, optimizer, device
-        )
+        train_loss, train_acc = train_epoch(model, train_loader, criterion, optimizer, device)
+        val_loss, val_acc = validate(model, val_loader, criterion, device)
         
-        # Validate
-        val_loss, val_acc = validate(
-            model, val_loader, criterion, device
-        )
-        
-        # Update history
         history['train_loss'].append(train_loss)
         history['train_acc'].append(train_acc)
         history['val_loss'].append(val_loss)
@@ -152,13 +95,11 @@ def train_model(args):
         print(f"Train Loss: {train_loss:.4f}, Train Acc: {train_acc:.2f}%")
         print(f"Val Loss: {val_loss:.4f}, Val Acc: {val_acc:.2f}%")
         
-        # Learning rate scheduling
         scheduler.step(val_acc)
         
-        # Save best model
-        if val_acc > best_val_acc:
-            best_val_acc = val_acc
-            patience_counter = 0
+        if val_acc > best_acc:
+            best_acc = val_acc
+            patience = 0
             torch.save({
                 'epoch': epoch,
                 'model_state_dict': model.state_dict(),
@@ -167,59 +108,36 @@ def train_model(args):
             }, os.path.join(args.output_dir, 'model_best.pth'))
             print(f"✓ Saved best model (val_acc: {val_acc:.2f}%)")
         else:
-            patience_counter += 1
+            patience += 1
         
-        # Early stopping
-        if patience_counter >= args.patience:
-            print(f"\nEarly stopping triggered after {epoch+1} epochs")
+        if patience >= args.patience:
+            print(f"\nEarly stopping at epoch {epoch+1}")
             break
     
-    # Save final model
-    torch.save(model.state_dict(), 
-               os.path.join(args.output_dir, 'model_final.pth'))
+    torch.save(model.state_dict(), os.path.join(args.output_dir, 'model_final.pth'))
     
-    # Save training history
     with open(os.path.join(args.output_dir, 'training_history.json'), 'w') as f:
         json.dump(history, f, indent=4)
     
-    # Plot training curves
     plot_training_history(history, args.output_dir)
     
-    print(f"\n✓ Training completed!")
-    print(f"Best validation accuracy: {best_val_acc:.2f}%")
-    
+    print(f"\nTraining complete! Best val accuracy: {best_acc:.2f}%")
     return model, history
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description='Train wafer defect classifier')
-    parser.add_argument('--data_dir', type=str, default='data/processed',
-                        help='Path to processed dataset')
-    parser.add_argument('--output_dir', type=str, default='outputs',
-                        help='Output directory for models and logs')
-    parser.add_argument('--num_classes', type=int, default=7,
-                        help='Number of defect classes')
-    parser.add_argument('--img_size', type=int, default=224,
-                        help='Input image size')
-    parser.add_argument('--batch_size', type=int, default=32,
-                        help='Batch size')
-    parser.add_argument('--epochs', type=int, default=30,
-                        help='Number of training epochs')
-    parser.add_argument('--lr', type=float, default=1e-3,
-                        help='Learning rate')
-    parser.add_argument('--weight_decay', type=float, default=1e-4,
-                        help='Weight decay')
-    parser.add_argument('--patience', type=int, default=10,
-                        help='Early stopping patience')
-    parser.add_argument('--num_workers', type=int, default=4,
-                        help='Number of data loading workers')
-    parser.add_argument('--pretrained', action='store_true', default=True,
-                        help='Use pretrained weights')
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--data_dir', default='data/processed_real')
+    parser.add_argument('--output_dir', default='outputs')
+    parser.add_argument('--num_classes', type=int, default=2)
+    parser.add_argument('--img_size', type=int, default=224)
+    parser.add_argument('--batch_size', type=int, default=32)
+    parser.add_argument('--epochs', type=int, default=30)
+    parser.add_argument('--lr', type=float, default=1e-3)
+    parser.add_argument('--weight_decay', type=float, default=1e-4)
+    parser.add_argument('--patience', type=int, default=10)
+    parser.add_argument('--num_workers', type=int, default=4)
     
     args = parser.parse_args()
-    
-    # Create output directory
     os.makedirs(args.output_dir, exist_ok=True)
-    
-    # Train model
     train_model(args)

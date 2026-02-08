@@ -17,23 +17,32 @@ class WaferDefectDataset(Dataset):
     Dataset class for wafer defect images
     """
     
-    DEFECT_CLASSES = [
-        'clean', 'crack', 'short', 'open', 
-        'bridge', 'cmp_scratch', 'other'
-    ]
-    
-    def __init__(self, root_dir, split='train', transform=None, img_size=224):
+    def __init__(self, root_dir, split='train', transform=None, img_size=224, class_names=None):
         """
         Args:
             root_dir: Root directory containing train/val/test folders
             split: 'train', 'val', or 'test'
             transform: Albumentations transform pipeline
             img_size: Target image size
+            class_names: List of class names (if None, auto-detect from folders)
         """
         self.root_dir = root_dir
         self.split = split
         self.img_size = img_size
         self.transform = transform
+        
+        # Auto-detect classes from train folder if not provided
+        if class_names is None:
+            train_dir = os.path.join(root_dir, 'train')
+            if os.path.exists(train_dir):
+                self.class_names = sorted([d for d in os.listdir(train_dir) 
+                                          if os.path.isdir(os.path.join(train_dir, d))])
+            else:
+                # Fallback to default classes
+                self.class_names = ['clean', 'crack', 'short', 'open', 
+                                   'bridge', 'cmp_scratch', 'other']
+        else:
+            self.class_names = class_names
         
         # Build file list
         self.samples = []
@@ -41,7 +50,7 @@ class WaferDefectDataset(Dataset):
         
         split_dir = os.path.join(root_dir, split)
         if os.path.exists(split_dir):
-            for class_idx, class_name in enumerate(self.DEFECT_CLASSES):
+            for class_idx, class_name in enumerate(self.class_names):
                 class_dir = os.path.join(split_dir, class_name)
                 if os.path.exists(class_dir):
                     for img_name in os.listdir(class_dir):
@@ -50,6 +59,7 @@ class WaferDefectDataset(Dataset):
                             self.labels.append(class_idx)
         
         print(f"Loaded {len(self.samples)} images for {split} split")
+        print(f"Classes: {self.class_names}")
     
     def __len__(self):
         return len(self.samples)

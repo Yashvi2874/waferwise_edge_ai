@@ -31,12 +31,15 @@ wheels/
 # Data
 data/raw/
 data/processed/
+data/processed_real/
 *.csv
 *.h5
 *.hdf5
+*.zip
 
 # Outputs
 outputs/
+outputs_real/
 logs/
 checkpoints/
 *.log
